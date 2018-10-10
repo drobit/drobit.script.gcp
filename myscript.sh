@@ -1,8 +1,11 @@
 #!/bin/bash
-gcloud config set compute/zone us-central1-f
 
 gcloud container clusters create spinnaker-tutorial \
-    --machine-type=n1-standard-2
+    --zone us-central1-f \
+    --machine-type=n1-standard-2 \
+    --disk-type=pd-ssd \
+    --node-locations us-central1-a,us-central1-b,us-central1-f \
+    --num-nodes 1 --enable-autoscaling --min-nodes 1 --max-nodes 5
 	
 gcloud iam service-accounts create  spinnaker-storage-account \
     --display-name spinnaker-storage-account
@@ -18,9 +21,9 @@ gcloud projects add-iam-policy-binding \
 
 gcloud iam service-accounts keys create spinnaker-sa.json --iam-account $SA_EMAIL
 
-wget https://storage.googleapis.com/kubernetes-helm/helm-v2.7.2-linux-amd64.tar.gz
+wget https://storage.googleapis.com/kubernetes-helm/helm-v2.8.2-linux-amd64.tar.gz
 
-tar zxfv helm-v2.7.2-linux-amd64.tar.gz
+tar zxfv helm-v2.8.2-linux-amd64.tar.gz
 
 cp linux-amd64/helm .
 
@@ -32,7 +35,9 @@ kubectl create clusterrolebinding --clusterrole=cluster-admin --serviceaccount=d
 
 ./helm init --service-account=tiller
 
-./helm update
+./helm repo update
+
+sleep 15
 
 ./helm version
 
@@ -72,35 +77,85 @@ export DECK_POD=$(kubectl get pods --namespace default -l "component=deck" \
     -o jsonpath="{.items[0].metadata.name}")
 kubectl port-forward --namespace default $DECK_POD 8080:9000 >> /dev/null &
 
-
-./helm install -n cd stable/spinnaker -f spinnaker-config.yaml --timeout 600 \
-    --version 0.3.1
-
-export DECK_POD=$(kubectl get pods --namespace default -l "component=deck" \
-    -o jsonpath="{.items[0].metadata.name}")
-kubectl port-forward --namespace default $DECK_POD 8080:9000 >> /dev/null &
-
 wget https://gke-spinnaker.storage.googleapis.com/sample-app.tgz
 
 tar xzfv sample-app.tgz
 
-cd sample-app
+p="$HOME/sample-app" 
+cd "$p" && git config --global user.email "drobotserg1983@gmail.com" && git config --global user.name "drobit" && git init && git add . && git commit -m "Initial commit" && gcloud source repos create sample-app && git config credential.helper gcloud.sh && export PROJECT=$(gcloud info --format='value(config.project)') && git remote add origin https://source.developers.google.com/p/$PROJECT/r/sample-app && git push origin master
 
-git config --global user.email "drobotserg1983@gmail.com"
+d="$HOME"
+cd "$d" 
+./helm install stable/prometheus --version 6.7.4 --name my-prometheus
 
-git config --global user.name "drobit"
+cat > values.yml <<EOF 
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
 
-git init
-git add .
-git commit -m "Initial commit"
+datasources: 
+ datasources.yaml:
+   apiVersion: 1
+   datasources:
+   - name: Prometheus
+     type: prometheus
+     url: http://my-prometheus-server
+     access: proxy
+     isDefault: true
 
-gcloud source repos create sample-app
-git config credential.helper gcloud.sh
+dashboards:
+    kube-dash:
+      gnetId: 6663
+      revision: 1
+      datasource: Prometheus
+    kube-official-dash:
+      gnetId: 2
+      revision: 1
+      datasource: Prometheus
 
-git push origin master
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards
+EOF
+
+./helm install --name my-grafana stable/grafana --version 1.11.6 -f values.yml
+
+kubectl get secret --namespace default my-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+sleep 45
+
+export POD_NAME=$(kubectl get pods --namespace default -l "app=grafana" -o jsonpath="{.items[0].metadata.name}")
+
+kubectl --namespace default port-forward $POD_NAME 3000 >> /dev/null &
 
 
+cd "$p"
 
+touch deploypipeline.sh
+
+chmod +x deploypipeline.sh 
+
+cat > deploypipeline.sh <<EOF 
+#!/bin/bash
+
+kubectl apply -f k8s/services
+
+export PROJECT=$(gcloud info --format='value(config.project)')
+sed s/PROJECT/$PROJECT/g spinnaker/pipeline-deploy.json | curl -d@- -X \
+    POST --header "Content-Type: application/json" --header \
+    "Accept: /" http://localhost:8080/gate/pipelines
+EOF
 	
 
 
