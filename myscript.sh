@@ -21,9 +21,9 @@ gcloud projects add-iam-policy-binding \
 
 gcloud iam service-accounts keys create spinnaker-sa.json --iam-account $SA_EMAIL
 
-wget https://storage.googleapis.com/kubernetes-helm/helm-v2.8.2-linux-amd64.tar.gz
+wget https://storage.googleapis.com/kubernetes-helm/helm-v2.11.0-linux-amd64.tar.gz
 
-tar zxfv helm-v2.8.2-linux-amd64.tar.gz
+tar zxfv helm-v2.11.0-linux-amd64.tar.gz
 
 cp linux-amd64/helm .
 
