@@ -133,7 +133,7 @@ EOF
 
 kubectl get secret --namespace default my-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
 
-sleep 45
+sleep 65
 
 export POD_NAME=$(kubectl get pods --namespace default -l "app=grafana" -o jsonpath="{.items[0].metadata.name}")
 
@@ -156,6 +156,24 @@ sed s/PROJECT/$PROJECT/g spinnaker/pipeline-deploy.json | curl -d@- -X \
     POST --header "Content-Type: application/json" --header \
     "Accept: /" http://localhost:8080/gate/pipelines
 EOF
-	
+
+cd $HOME
+mkdir bin
+PATH=$PATH:$HOME/bin/
+sudo git clone https://github.com/ahmetb/kubectx $HOME/kubectx
+sudo ln -s $HOME/kubectx/kubectx $HOME/bin/kubectx
+sudo ln -s $HOME/kubectx/kubens $HOME/bin/kubens
+
+git clone https://github.com/jonmosco/kube-ps1.git
+echo 'source $HOME/kube-ps1/kube-ps1.sh' >> ~/.bashrc
+export VAR="PS1='[\W \$(kube_ps1)]\$ '"
+echo $VAR >> ~/.bashrc
+source $HOME/.bashrc
+
+export GCP_ZONE=us-central1-f
+gcloud config set compute/zone $GCP_ZONE
+gcloud container clusters get-credentials spinnaker-tutorial --zone $GCP_ZONE --project $(gcloud info --format='value(config.project)')
+kubectx spinnaker-turotial="gke_"$(gcloud info --format='value(config.project)')"_"$GCP_ZONE"_spinnaker-tutorial"
+
 
 
